@@ -14,11 +14,11 @@ firestore_namespace: "hierarchical_docs"
 
 # Index settings
 index_id: "llamaindex_rag"
-vector_index_name: "index_hierarchical"
-index_endpoint_name: "index_endpoint"
+vector_index_name: "index_vector"
+index_endpoint_name: "endpoint_vector"
 indexing_method: "hierarchical"
-qa_index_name: "google_qa"
-qa_endpoint_name: "hierarchical_endpoint"
+qa_index_name: "index_question"
+qa_endpoint_name: "endpoint_question"
 
 # Chunking and embedding settings
 chunk_sizes: [4096, 2048, 1024, 512]

@@ -1,6 +1,6 @@
 # Prerequisites:
 # ! pip install llama-index llama-index-vector-stores-vertexaivectorsearch llama-index-llms-vertex llama-index-storage-docstore-firestore
-# ! pip install --upgrade google-cloud-documentai
+# ! pip install google-cloud-documentai pydantic
 # REFERENCE: https://cloud.google.com/vertex-ai/docs/vector-search/quickstart#enable-apis
 # ! gcloud services enable compute.googleapis.com aiplatform.googleapis.com storage.googleapis.com --project ai-sandbox-company-73
 
@@ -9,19 +9,28 @@ import logging
 import os
 import sys
 import yaml
-from google.cloud import aiplatform
-from docai_parser import DocAIParser
-from google.oauth2 import service_account
+import asyncio
+
+from google.cloud import aiplatform  # Vertex AI Platform
+from docai_parser import DocAIParser  # Document AI Parser
+from google.oauth2 import service_account  # Service Account Credentials
+from pydantic import BaseModel  # Pydantic is a data validation and parsing library
+from tqdm.asyncio import (
+    tqdm_asyncio,
+)  # tqdm is a library that allows you to display progress bars while running code
 
 from llama_index.core import Document, Settings, StorageContext, VectorStoreIndex
+from llama_index.core.program import LLMTextCompletionProgram
 from llama_index.core.extractors import QuestionsAnsweredExtractor
+from llama_index.core.schema import NodeRelationship, RelatedNodeInfo, TextNode
+from llama_index.core.node_parser import HierarchicalNodeParser, SentenceSplitter
 from llama_index.vector_stores.vertexaivectorsearch import VertexAIVectorStore
 from llama_index.storage.docstore.firestore import FirestoreDocumentStore
 from llama_index.embeddings.vertex import VertexTextEmbedding
 from llama_index.llms.vertex import Vertex
 
 # Add the common directory to the system path
-# sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from vector_search_utils import get_or_create_existing_index
 from backend.indexing.prompts import QA_EXTRACTION_PROMPT, QA_PARSER_PROMPT
 from common.utils import (
@@ -36,7 +45,8 @@ logger = logging.getLogger(__name__)
 
 # Load configuration from config.yaml
 def load_config():
-    config_path = os.path.join(os.path.dirname(""), "..", "..", "common", "config.yaml")
+    config_path = os.path.join(os.path.dirname(""), "common", "config.yaml")
+    print(config_path)
     with open(config_path) as config_file:
         return yaml.safe_load(config_file)
 
@@ -73,9 +83,7 @@ GCS_OUTPUT_PATH = f"gs://{DOCSTORE_BUCKET_NAME}/{VECTOR_DATA_PREFIX}/docai_outpu
 GOOGLE_CREDENTIAL_PATH = config.get("credential")
 
 # Google Service Account credentials
-google_credential_path = os.path.join(
-    os.path.dirname(""), "..", "..", GOOGLE_CREDENTIAL_PATH
-)
+google_credential_path = os.path.join(os.path.dirname(""), GOOGLE_CREDENTIAL_PATH)
 google_credential = service_account.Credentials.from_service_account_file(
     google_credential_path
 )
@@ -87,18 +95,22 @@ class QuesionsAnswered(BaseModel):
     questions_list: list[str]
 
 
-def create_qa_index(li_docs, docstore, embed_model, llm):
-    """
-    Creates index of hypothetical questions
+def create_qa_index(
+    li_docs: list[Document],
+    docstore: FirestoreDocumentStore,
+    embed_model: VertexTextEmbedding,
+    llm: Vertex,
+):
+    """Create a QA index for the parsed documents.
 
     Args:
-        li_docs: List of documents
-        docstore: Firestore docstore
-        embed_model: Vertex Text Embedding
-        llm: Vertex LLM
+        li_docs (list[Document]): List of parsed documents
+        docstore (FirestoreDocumentStore): Firestore Document Store
+        embed_model (VertexTextEmbedding): Vertex Text Embedding model
+        llm (Vertex): Vertex model
 
     Returns:
-
+        None
     """
     qa_index, qa_endpoint = get_or_create_existing_index(
         QA_INDEX_NAME, QA_ENDPOINT_NAME, APPROXIMATE_NEIGHBORS_COUNT
@@ -112,6 +124,137 @@ def create_qa_index(li_docs, docstore, embed_model, llm):
     )
     qa_extractor = QuestionsAnsweredExtractor(
         llm, questions=5, prompt_template=QA_EXTRACTION_PROMPT
+    )
+
+    async def extract_batch(li_docs):
+        return await tqdm_asyncio.gather(
+            *[qa_extractor._aextract_questions_from_node(doc) for doc in li_docs]
+        )
+
+    loop = asyncio.get_event_loop()
+    metadata_list = loop.run_until_complete(extract_batch(li_docs))
+
+    program = LLMTextCompletionProgram.from_defaults(
+        output_cls=QuesionsAnswered,
+        prompt_template_str=QA_PARSER_PROMPT,
+        verbose=True,
+    )
+
+    async def parse_batch(metadata_list):
+        return await asyncio.gather(
+            *[program.acall(questions_list=x) for x in metadata_list],
+            return_exceptions=True,
+        )
+
+    parsed_questions = loop.run_until_complete(parse_batch(metadata_list))
+
+    loop.close()
+
+    q_docs = []
+    for doc, questions in zip(li_docs, parsed_questions):
+        if isinstance(questions, Exception):
+            logger.infor(f"Unparsable questions exception: {questions}")
+            continue
+        else:
+            for q in questions.questions_list:
+                logger.info(f"Question extracted: {q}")
+                q_doc = Document(text=q)
+                q_doc.relationships[NodeRelationship.SOURCE] = RelatedNodeInfo(
+                    node_id=doc.doc_id
+                )
+                q_docs.append(q_doc)
+    docstore.add_documents(li_docs)
+    storage_context = StorageContext.from_defaults(
+        docstore=docstore, vector_store=qa_vector_store
+    )
+    VectorStoreIndex(
+        nodes=q_docs,
+        storage_context=storage_context,
+        embed_model=embed_model,
+        llm=llm,
+    )
+
+
+def create_hierarchical_index(
+    li_docs: list[Document],
+    docstore: FirestoreDocumentStore,
+    vector_store: VertexAIVectorStore,
+    embed_model: VertexTextEmbedding,
+    llm: Vertex,
+):
+    """Create a hierarchical index for the parsed documents.
+
+    Args:
+        li_docs (list[Document]): List of parsed documents
+        docstore (FirestoreDocumentStore): Firestore Document Store
+        vector_store (VertexAIVectorStore): Vertex AI Vector Store
+        embed_model (VertexTextEmbedding): Vertex Text Embedding model
+        llm (Vertex): Vertex model
+
+    Returns:
+        None
+    """
+    node_parser = HierarchicalNodeParser.from_defaults(chunk_sizes=CHUNK_SIZES)
+    nodes = node_parser.get_nodes_from_documents(li_docs)
+
+    leaf_nodes = node_parser.get_leaf_nodes(nodes)
+    num_leaf_nodes = len(leaf_nodes)
+    num_nodes = len(nodes)
+    logger.info(f"There are {num_nodes} nodes and {num_leaf_nodes} leaf nodes.")
+    docstore.add_documents(nodes)
+    storage_context = StorageContext.from_defaults(
+        docstore=docstore, vector_store=vector_store
+    )
+    VectorStoreIndex(
+        nodes=leaf_nodes,
+        storage_context=storage_context,
+        embed_model=embed_model,
+        llm=llm,
+    )
+
+
+def create_flat_index(li_docs, docstore, vector_store, embed_model, llm):
+    sentence_splitter = SentenceSplitter(chunk_size=CHUNK_OVERLAP)
+    # Chunk into granular chunks manually
+    node_chunk_list = []
+    for doc in li_docs:
+        doc_dict = doc.to_dict()
+        metadata = doc_dict.pop("metadata")
+        doc_dict.update(metadata)
+        chunks = sentence_splitter.get_nodes_from_documents([doc])
+
+        # Create nodes with relationships and flatten
+        nodes = []
+        for chunk in chunks:
+            text = chunk.pop("text")
+            doc_source_id = doc.doc_id
+            node = TextNode(text=text, metadata=chunk)
+            node.relationships[NodeRelationship.SOURCE] = RelatedNodeInfo(
+                node_id=doc_source_id
+            )
+            nodes.append(node)
+
+        nodes = link_nodes(nodes)
+        node_chunk_list.extend(nodes)
+
+    nodes = node_chunk_list
+    logger.info("embedding...")
+    docstore.add_documents(li_docs)
+    storage_context = StorageContext.from_defaults(
+        docstore=docstore, vector_store=vector_store
+    )
+
+    for node in nodes:
+        node.metadata.pop("excluded_embed_metadata_keys", None)
+        node.metadata.pop("excluded_llm_metadata_keys", None)
+
+    # Creating an index automatically embeds and creates the
+    # vector db collection
+    VectorStoreIndex(
+        nodes=nodes,
+        storage_context=storage_context,
+        embed_model=embed_model,
+        llm=llm,
     )
 
 

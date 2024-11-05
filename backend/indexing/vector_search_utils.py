@@ -10,12 +10,6 @@ def create_index(
     google_credential: service_account.Credentials,
 ):
     """Creates a vector search index."""
-    index_names = [
-        index.resource_name
-        for index in aiplatform.MatchingEngineIndex.list(
-            filter=f"display_name={vector_index_name}", credentials=google_credential
-        )
-    ]
     print(f"Creating Vector Search index {vector_index_name} ...")
     vs_index = aiplatform.MatchingEngineIndex.create_tree_ah_index(
         display_name=vector_index_name,
@@ -30,6 +24,13 @@ def create_index(
         f"Vector Search index {vs_index.display_name} "
         f"created with resource name {vs_index.resource_name}"
     )
+    # FIXME: This is a workaround to get the resource name of the created index. index_names was declared earlier before the index was created.
+    index_names = [
+        index.resource_name
+        for index in aiplatform.MatchingEngineIndex.list(
+            filter=f"display_name={vector_index_name}", credentials=google_credential
+        )
+    ]
     vs_index = aiplatform.MatchingEngineIndex(
         index_name=index_names[0], credentials=google_credential
     )
@@ -44,13 +45,6 @@ def create_endpoint(
     index_endpoint_name: str, google_credential: service_account.Credentials
 ):
     """Creates an index endpoint."""
-    endpoint_names = [
-        endpoint.resource_name
-        for endpoint in aiplatform.MatchingEngineIndexEndpoint.list(
-            filter=f"display_name={index_endpoint_name}",
-            credentials=google_credential,
-        )
-    ]
     print(f"Creating Vector Search index endpoint {index_endpoint_name} ...")
     vs_endpoint = aiplatform.MatchingEngineIndexEndpoint.create(
         display_name=index_endpoint_name,
@@ -61,6 +55,14 @@ def create_endpoint(
         f"Vector Search index endpoint {vs_endpoint.display_name} "
         f"created with resource name {vs_endpoint.resource_name}"
     )
+    # FIXME: Likewise for the index, endpoint_names was declared earlier before the endpoint was created.
+    endpoint_names = [
+        endpoint.resource_name
+        for endpoint in aiplatform.MatchingEngineIndexEndpoint.list(
+            filter=f"display_name={index_endpoint_name}",
+            credentials=google_credential,
+        )
+    ]
     vs_endpoint = aiplatform.MatchingEngineIndexEndpoint(
         index_endpoint_name=endpoint_names[0], credentials=google_credential
     )
