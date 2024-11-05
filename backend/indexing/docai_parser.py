@@ -95,7 +95,8 @@ class DocAIParser:
                 documents=[
                     documentai.GcsDocument(
                         gcs_uri=blob.path,
-                        mime_type=blob.mime_type or "application/pdf",
+                        # TODO: To fix the mimetype issue in the original code
+                        mime_type=blob.mimetype or "application/pdf",
                     )
                     for blob in blobs
                 ]
