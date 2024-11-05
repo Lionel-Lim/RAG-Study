@@ -1,0 +1,46 @@
+# Project and environment settings
+project_id: "ai-sandbox-company-73"
+location: "asia-southeast1"
+
+# Data and storage settings
+data_path: "{base_path}/data/data"
+input_bucket_name: "ai-sandbox-jacobs_dataset"
+docstore_bucket_name: "ai-sandbox-jacobs_rag-db"
+bucket_prefix: "raw_dataset/"
+vector_data_prefix: "vector_data"
+rag_eval_dataset: "ken-rag-datasets"
+firestore_db_name: "rag-docstore"
+firestore_namespace: "hierarchical_docs"
+
+# Index settings
+index_id: "llamaindex_rag"
+vector_index_name: "index_hierarchical"
+index_endpoint_name: "index_endpoint"
+indexing_method: "hierarchical"
+qa_index_name: "google_qa"
+qa_endpoint_name: "hierarchical_endpoint"
+
+# Chunking and embedding settings
+chunk_sizes: [4096, 2048, 1024, 512]
+chunk_size: 512
+chunk_overlap: 50
+embeddings_model_name: "text-embedding-004"
+llm_model_name: "gemini-1.5-pro-002"
+# TODO: Find the best value for approximate_neighbors_count
+approximate_neighbors_count: 100
+
+# Document AI settings
+docai_location: "us"
+docai_processor_id: "7af69fda61e9a4c4"
+document_ai_processor_display_name: "layout-parser"
+create_docai_processor: false
+
+# Authentication
+credential: "credential/ai-sandbox-company-73-2659f4150720.json"
+
+# API settings
+fastapi_url: "http://localhost:8033"
+
+# UI settings
+streamlit_host: "0.0.0.0"
+streamlit_port: 8080
