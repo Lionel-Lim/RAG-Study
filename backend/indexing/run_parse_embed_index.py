@@ -12,8 +12,8 @@ import yaml
 import asyncio
 
 from google.cloud import aiplatform  # Vertex AI Platform
-from docai_parser import DocAIParser  # Document AI Parser
 from google.oauth2 import service_account  # Service Account Credentials
+from google.api_core.exceptions import NotFound
 from pydantic import BaseModel  # Pydantic is a data validation and parsing library
 from tqdm.asyncio import (
     tqdm_asyncio,
@@ -23,7 +23,11 @@ from llama_index.core import Document, Settings, StorageContext, VectorStoreInde
 from llama_index.core.program import LLMTextCompletionProgram
 from llama_index.core.extractors import QuestionsAnsweredExtractor
 from llama_index.core.schema import NodeRelationship, RelatedNodeInfo, TextNode
-from llama_index.core.node_parser import HierarchicalNodeParser, SentenceSplitter
+from llama_index.core.node_parser import (
+    HierarchicalNodeParser,
+    SentenceSplitter,
+    get_leaf_nodes,
+)
 from llama_index.vector_stores.vertexaivectorsearch import VertexAIVectorStore
 from llama_index.storage.docstore.firestore import FirestoreDocumentStore
 from llama_index.embeddings.vertex import VertexTextEmbedding
@@ -31,6 +35,7 @@ from llama_index.llms.vertex import Vertex
 
 # Add the common directory to the system path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+from docai_parser import DocAIParser  # Document AI Parser
 from vector_search_utils import get_or_create_existing_index
 from backend.indexing.prompts import QA_EXTRACTION_PROMPT, QA_PARSER_PROMPT
 from common.utils import (
@@ -113,7 +118,7 @@ def create_qa_index(
         None
     """
     qa_index, qa_endpoint = get_or_create_existing_index(
-        QA_INDEX_NAME, QA_ENDPOINT_NAME, APPROXIMATE_NEIGHBORS_COUNT
+        QA_INDEX_NAME, QA_ENDPOINT_NAME, APPROXIMATE_NEIGHBORS_COUNT, google_credential
     )
     qa_vector_store = VertexAIVectorStore(
         project_id=PROJECT_ID,
@@ -121,6 +126,7 @@ def create_qa_index(
         index_id=qa_index.name,
         endpoint_id=qa_endpoint.name,
         gcs_bucket_name=DOCSTORE_BUCKET_NAME,
+        credentials_path=google_credential_path,
     )
     qa_extractor = QuestionsAnsweredExtractor(
         llm, questions=5, prompt_template=QA_EXTRACTION_PROMPT
@@ -197,7 +203,8 @@ def create_hierarchical_index(
     node_parser = HierarchicalNodeParser.from_defaults(chunk_sizes=CHUNK_SIZES)
     nodes = node_parser.get_nodes_from_documents(li_docs)
 
-    leaf_nodes = node_parser.get_leaf_nodes(nodes)
+    # leaf_nodes = node_parser.get_leaf_nodes(nodes)
+    leaf_nodes = get_leaf_nodes(nodes)
     num_leaf_nodes = len(leaf_nodes)
     num_nodes = len(nodes)
     logger.info(f"There are {num_nodes} nodes and {num_leaf_nodes} leaf nodes.")
@@ -283,6 +290,16 @@ def main():
     docstore = FirestoreDocumentStore.from_database(
         project=PROJECT_ID, database=FIRESTORE_DB_NAME, namespace=FIRESTORE_NAMESPACE
     )
+    try:
+        docstore.get_document("test")
+    except NotFound:
+        # If the database does exist, it will throw a ValueError.
+        logger.info(
+            "Firestore document store not found. Creating Firestore document store."
+        )
+        return None
+    except ValueError:
+        logger.info("Firestore DB is found.")
 
     # Setup embedding model and LLM
     embed_model = VertexTextEmbedding(
@@ -307,6 +324,8 @@ def main():
     local_data_path = os.path.join("/tmp", BUCKET_PREFIX)
     os.makedirs(local_data_path, exist_ok=True)
     blobs = create_pdf_blob_list(INPUT_BUCKET_NAME, BUCKET_PREFIX)
+    # DEBUG: Select only the first 5 blobs for testing
+    blobs = blobs[:5]
     logger.info("downloading data")
     download_bucket_with_transfer_manager(
         INPUT_BUCKET_NAME, prefix=BUCKET_PREFIX, destination_directory=local_data_path
@@ -314,6 +333,9 @@ def main():
 
     # Parse documents using Document AI
     try:
+        # Log the number of documents parsed and starting time using logger
+        logger.info(f"Number of documents to parse: {len(blobs)}")
+        logger.info("Parsing documents...")
         parsed_docs, raw_results = parser.batch_parse(
             blobs, chunk_size=CHUNK_SIZE, include_ancestor_headings=True
         )

@@ -63,6 +63,7 @@ def create_endpoint(
             credentials=google_credential,
         )
     ]
+
     vs_endpoint = aiplatform.MatchingEngineIndexEndpoint(
         index_endpoint_name=endpoint_names[0], credentials=google_credential
     )

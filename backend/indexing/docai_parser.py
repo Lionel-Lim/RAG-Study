@@ -4,6 +4,7 @@ import time
 import traceback
 
 from google.api_core.client_options import ClientOptions
+from google.api_core.retry import Retry
 from google.cloud import documentai, storage
 from google.cloud.storage import Blob
 from llama_index.core import Document
@@ -72,8 +73,9 @@ class DocAIParser:
         except Exception as e:
             print(f"Error in batch parsing: {str(e)}")
             traceback.print_exc()
+            raise e
             # Return any successfully parsed documents and results instead of raising an exception
-            return [], []
+            # return [], []
 
     def _start_batch_process(
         self, blobs: list[Blob], chunk_size: int, include_ancestor_headings: bool
@@ -126,7 +128,9 @@ class DocAIParser:
         )
 
         try:
-            operation = self._client.batch_process_documents(request=request)
+            operation = self._client.batch_process_documents(
+                request=request, timeout=3000, retry=Retry(deadline=3000)
+            )
             print(f"Batch process started. Operation: {operation}")
             return [operation]
         except Exception as e:
