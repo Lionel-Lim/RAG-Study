@@ -1,0 +1,52 @@
+export PROJECT_ID=ai-sandbox-company-73
+export SERVICE_ACCOUNT=dy-local@ai-sandbox-company-73.iam.gserviceaccount.com
+
+docker build -t fastapi-llamaindex-rag .
+docker tag fastapi-llamaindex-rag gcr.io/${PROJECT_ID}/fastapi-llamaindex-rag
+docker push gcr.io/${PROJECT_ID}/fastapi-llamaindex-rag
+
+gcloud run deploy fastapi-llamaindex-rag \
+    --image gcr.io/${PROJECT_ID}/fastapi-llamaindex-rag \
+    --platform managed \
+    --region asia-southeast1 \
+    --allow-unauthenticated \
+    --port 8080 \
+    --set-env-vars=CONFIG_PATH=/app/common/config.yaml \
+    --service-account=${SERVICE_ACCOUNT} \
+    --cpu 2 \
+    --memory 4Gi \
+    --max-instances 1
+
+
+docker run -d -p 8080:80 --name fastapi-llamaindex-rag fastapi-llamaindex-rag
+
+# Option2
+export PROJECT_ID=ai-sandbox-company-73
+export SERVICE_ACCOUNT=dy-local@ai-sandbox-company-73.iam.gserviceaccount.com
+
+docker buildx build --platform linux/amd64 -t fastapi-llamaindex-rag --load .
+docker tag fastapi-llamaindex-rag gcr.io/${PROJECT_ID}/fastapi-llamaindex-rag
+docker push gcr.io/${PROJECT_ID}/fastapi-llamaindex-rag
+
+gcloud run deploy fastapi-llamaindex-rag \
+  --image gcr.io/${PROJECT_ID}/fastapi-llamaindex-rag:latest \
+  --region asia-southeast1
+
+# Frontend
+export PROJECT_ID=ai-sandbox-company-73
+export SERVICE_ACCOUNT=dy-local@ai-sandbox-company-73.iam.gserviceaccount.com
+
+docker buildx build -f ui/Dockerfile -t fastapi-streamlit-app --load .
+docker tag fastapi-streamlit-app gcr.io/${PROJECT_ID}/fastapi-streamlit-app
+docker push gcr.io/${PROJECT_ID}/fastapi-streamlit-app
+gcloud run deploy fastapi-streamlit-app \
+--image gcr.io/${PROJECT_ID}/fastapi-streamlit-app \
+--platform managed \
+--region asia-southeast1 \
+--allow-unauthenticated \
+--port 8080 \
+--service-account=${SERVICE_ACCOUNT} \
+--cpu 2 \
+--memory 4Gi \
+--max-instances 1
+

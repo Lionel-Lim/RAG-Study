@@ -8,7 +8,7 @@ input_bucket_name: "ai-sandbox-jacobs_dataset"
 docstore_bucket_name: "ai-sandbox-jacobs_rag-db"
 bucket_prefix: "raw_dataset/"
 vector_data_prefix: "vector_data"
-rag_eval_dataset: "ken-rag-datasets"
+rag_eval_dataset: "rag-eval-datasets"
 firestore_db_name: "rag-docstore"
 firestore_namespace: "hierarchical_docs"
 
@@ -39,7 +39,8 @@ create_docai_processor: false
 credential: "credential/ai-sandbox-company-73-2659f4150720.json"
 
 # API settings
-fastapi_url: "http://localhost:8033"
+fastapi_url: "http://localhost:8080"
+# fastapi_url: "https://fastapi-llamaindex-rag-1017035145549.asia-southeast1.run.app"
 
 # UI settings
 streamlit_host: "0.0.0.0"

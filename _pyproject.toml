@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "llamaindex-rag"
+version = "0.1.0"
+description = ""
+authors = ["DY Lim <dlagus6412@gmail.com>"]
+license = "Apache License, Version 2.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+altair = "5.4.1"
+anthropic = "0.39.0"
+datasets = "3.1.0"
+fastapi = "0.115.4"
+google-cloud-aiplatform = "1.71.1"
+langchain-google-vertexai = "2.0.7"
+llama-index = "0.11.22"
+pandas = "2.2.3"
+protobuf = "5.28.3"
+pydantic = "2.9.2"
+pystemmer = "2.2.0.3"
+pyyaml = "6.0.2"
+ragas = "0.2.3"
+requests = "2.32.3"
+streamlit = "1.39.0"
+tqdm = "4.67.0"
+uvicorn = "0.32.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
